@@ -1,0 +1,539 @@
+####################################################################################################
+#####                              TX Ultimate Easy for ESPHome                                #####
+#####                  Repository: https://github.com/edwardtfn/TX-Ultimate-Easy               #####
+####################################################################################################
+##### Purpose: ESPHome - ESP-NOW Communication for Multi-Device Relay Control                #####
+####################################################################################################
+##### Author: edwardtfn - https://github.com/edwardtfn - https://buymeacoffee.com/edwardfirmo  #####
+####################################################################################################
+##### NOTE:                                                                                    #####
+##### - This enables ESP-NOW communication between multiple TX Ultimate Easy devices          #####
+##### - Configure target device and relay for each button via Home Assistant                 #####
+####################################################################################################
+---
+substitutions:
+  TAG_ESPNOW: tx_ultimate_easy.espnow
+
+esphome:
+  platformio_options:
+    build_flags:
+      - -D TX_ULTIMATE_EASY_ESPNOW
+
+globals:
+  # ESP-NOW enabled flag
+  - id: espnow_enabled
+    type: bool
+    restore_value: true
+    initial_value: 'false'
+  
+  # MAC addresses for each button (stored as strings)
+  - id: espnow_target_mac_button_1
+    type: std::string
+    restore_value: true
+    initial_value: '"00:00:00:00:00:00"'
+  
+  - id: espnow_target_mac_button_2
+    type: std::string
+    restore_value: true
+    initial_value: '"00:00:00:00:00:00"'
+  
+  - id: espnow_target_mac_button_3
+    type: std::string
+    restore_value: true
+    initial_value: '"00:00:00:00:00:00"'
+  
+  - id: espnow_target_mac_button_4
+    type: std::string
+    restore_value: true
+    initial_value: '"00:00:00:00:00:00"'
+  
+  # Target relay numbers for each button
+  - id: espnow_target_relay_button_1
+    type: uint8_t
+    restore_value: true
+    initial_value: '1'
+  
+  - id: espnow_target_relay_button_2
+    type: uint8_t
+    restore_value: true
+    initial_value: '1'
+  
+  - id: espnow_target_relay_button_3
+    type: uint8_t
+    restore_value: true
+    initial_value: '1'
+  
+  - id: espnow_target_relay_button_4
+    type: uint8_t
+    restore_value: true
+    initial_value: '1'
+
+espnow:
+  id: espnow_component
+  # Enable auto-add peer to allow dynamic peer addition when sending messages
+  # This allows sending to MAC addresses configured via Home Assistant without
+  # needing to pre-configure all peers in YAML
+  auto_add_peer: true
+  # Receiver: toggle relays on receive
+  on_receive:
+    then:
+      - lambda: |-
+          if (data == nullptr) {
+            ESP_LOGW("${TAG_ESPNOW}", "Received ESP-NOW message with null data pointer");
+            return;
+          }
+          
+          uint8_t command = data[0];
+          uint8_t relay_num = data[1];
+          
+          ESP_LOGI("${TAG_ESPNOW}", "[RECEIVE] ESP-NOW message received: command=0x%02X, relay=%" PRIu8, command, relay_num);
+          
+          if (command == 0x01 && relay_num >= 1 && relay_num <= 4) {
+            ESP_LOGI("${TAG_ESPNOW}", "[RECEIVE] Toggling relay %" PRIu8, relay_num);
+            switch (relay_num) {
+              case 1:
+                id(sw_relay_1)->toggle();
+                break;
+              case 2:
+                id(sw_relay_2)->toggle();
+                break;
+              case 3:
+                id(sw_relay_3)->toggle();
+                break;
+              case 4:
+                id(sw_relay_4)->toggle();
+                break;
+            }
+          } else {
+            ESP_LOGW("${TAG_ESPNOW}", "[RECEIVE] Invalid message format (command=0x%02X, relay=%" PRIu8 ")", command, relay_num);
+          }
+
+script:
+  # Send ESP-NOW message for button 1
+  - id: espnow_send_button_1
+    mode: single
+    then:
+      - delay: 100ms  # Yield control and let button event complete
+      - if:
+          condition:
+            lambda: |-
+              return id(espnow_enabled) && 
+                     id(espnow_target_mac_button_1) != "00:00:00:00:00:00";
+          then:
+            - lambda: |-
+                uint8_t relay_num = id(espnow_target_relay_button_1);
+                ESP_LOGI("${TAG_ESPNOW}", "Sending ESP-NOW: MAC=%s, relay=%" PRIu8, 
+                         id(espnow_target_mac_button_1).c_str(), relay_num);
+            - espnow.send:
+                id: espnow_component
+                address: !lambda |-
+                  // Parse MAC address string to byte array
+                  std::string mac_str = id(espnow_target_mac_button_1);
+                  std::transform(mac_str.begin(), mac_str.end(), mac_str.begin(), ::toupper);
+                  int values[6];
+                  if (sscanf(mac_str.c_str(), "%02X:%02X:%02X:%02X:%02X:%02X",
+                             &values[0], &values[1], &values[2],
+                             &values[3], &values[4], &values[5]) == 6) {
+                    return {static_cast<uint8_t>(values[0]), static_cast<uint8_t>(values[1]),
+                            static_cast<uint8_t>(values[2]), static_cast<uint8_t>(values[3]),
+                            static_cast<uint8_t>(values[4]), static_cast<uint8_t>(values[5])};
+                  }
+                  // Return invalid MAC if parsing fails
+                  return {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                data: !lambda |-
+                  uint8_t relay_num = id(espnow_target_relay_button_1);
+                  return {0x01, relay_num};
+                wait_for_sent: false
+
+  # Send ESP-NOW message for button 2
+  - id: espnow_send_button_2
+    mode: single
+    then:
+      - delay: 100ms
+      - if:
+          condition:
+            lambda: |-
+              return id(espnow_enabled) && 
+                     id(espnow_target_mac_button_2) != "00:00:00:00:00:00";
+          then:
+            - lambda: |-
+                uint8_t relay_num = id(espnow_target_relay_button_2);
+                ESP_LOGI("${TAG_ESPNOW}", "Sending ESP-NOW: MAC=%s, relay=%" PRIu8, 
+                         id(espnow_target_mac_button_2).c_str(), relay_num);
+            - espnow.send:
+                id: espnow_component
+                address: !lambda |-
+                  // Parse MAC address string to byte array
+                  std::string mac_str = id(espnow_target_mac_button_2);
+                  std::transform(mac_str.begin(), mac_str.end(), mac_str.begin(), ::toupper);
+                  int values[6];
+                  if (sscanf(mac_str.c_str(), "%02X:%02X:%02X:%02X:%02X:%02X",
+                             &values[0], &values[1], &values[2],
+                             &values[3], &values[4], &values[5]) == 6) {
+                    return {static_cast<uint8_t>(values[0]), static_cast<uint8_t>(values[1]),
+                            static_cast<uint8_t>(values[2]), static_cast<uint8_t>(values[3]),
+                            static_cast<uint8_t>(values[4]), static_cast<uint8_t>(values[5])};
+                  }
+                  // Return invalid MAC if parsing fails
+                  return {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                data: !lambda |-
+                  uint8_t relay_num = id(espnow_target_relay_button_2);
+                  return {0x01, relay_num};
+                wait_for_sent: false
+
+  # Send ESP-NOW message for button 3
+  - id: espnow_send_button_3
+    mode: single
+    then:
+      - delay: 100ms
+      - if:
+          condition:
+            lambda: |-
+              return id(espnow_enabled) && 
+                     id(espnow_target_mac_button_3) != "00:00:00:00:00:00";
+          then:
+            - lambda: |-
+                uint8_t relay_num = id(espnow_target_relay_button_3);
+                ESP_LOGI("${TAG_ESPNOW}", "Sending ESP-NOW: MAC=%s, relay=%" PRIu8, 
+                         id(espnow_target_mac_button_3).c_str(), relay_num);
+            - espnow.send:
+                id: espnow_component
+                address: !lambda |-
+                  // Parse MAC address string to byte array
+                  std::string mac_str = id(espnow_target_mac_button_3);
+                  std::transform(mac_str.begin(), mac_str.end(), mac_str.begin(), ::toupper);
+                  int values[6];
+                  if (sscanf(mac_str.c_str(), "%02X:%02X:%02X:%02X:%02X:%02X",
+                             &values[0], &values[1], &values[2],
+                             &values[3], &values[4], &values[5]) == 6) {
+                    return {static_cast<uint8_t>(values[0]), static_cast<uint8_t>(values[1]),
+                            static_cast<uint8_t>(values[2]), static_cast<uint8_t>(values[3]),
+                            static_cast<uint8_t>(values[4]), static_cast<uint8_t>(values[5])};
+                  }
+                  // Return invalid MAC if parsing fails
+                  return {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                data: !lambda |-
+                  uint8_t relay_num = id(espnow_target_relay_button_3);
+                  return {0x01, relay_num};
+                wait_for_sent: false
+
+  # Send ESP-NOW message for button 4
+  - id: espnow_send_button_4
+    mode: single
+    then:
+      - delay: 100ms
+      - if:
+          condition:
+            lambda: |-
+              return id(espnow_enabled) && 
+                     id(espnow_target_mac_button_4) != "00:00:00:00:00:00";
+          then:
+            - lambda: |-
+                uint8_t relay_num = id(espnow_target_relay_button_4);
+                ESP_LOGI("${TAG_ESPNOW}", "Sending ESP-NOW: MAC=%s, relay=%" PRIu8, 
+                         id(espnow_target_mac_button_4).c_str(), relay_num);
+            - espnow.send:
+                id: espnow_component
+                address: !lambda |-
+                  // Parse MAC address string to byte array
+                  std::string mac_str = id(espnow_target_mac_button_4);
+                  std::transform(mac_str.begin(), mac_str.end(), mac_str.begin(), ::toupper);
+                  int values[6];
+                  if (sscanf(mac_str.c_str(), "%02X:%02X:%02X:%02X:%02X:%02X",
+                             &values[0], &values[1], &values[2],
+                             &values[3], &values[4], &values[5]) == 6) {
+                    return {static_cast<uint8_t>(values[0]), static_cast<uint8_t>(values[1]),
+                            static_cast<uint8_t>(values[2]), static_cast<uint8_t>(values[3]),
+                            static_cast<uint8_t>(values[4]), static_cast<uint8_t>(values[5])};
+                  }
+                  // Return invalid MAC if parsing fails
+                  return {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+                data: !lambda |-
+                  uint8_t relay_num = id(espnow_target_relay_button_4);
+                  return {0x01, relay_num};
+                wait_for_sent: false
+
+  # Button click handler - extends button_click_event from hw_relays
+  - id: !extend button_click_event
+    then:
+      - lambda: |-
+          // Check if ESP-NOW is enabled and configured for this button
+          if (!id(espnow_enabled)) {
+            return;  // ESP-NOW disabled, let default handler work
+          }
+          
+          // Send ESP-NOW message if MAC is configured
+          std::string target_mac;
+          switch (button) {
+            case 1:
+              target_mac = id(espnow_target_mac_button_1);
+              if (target_mac != "00:00:00:00:00:00") {
+                espnow_send_button_1->execute();
+              }
+              break;
+            case 2:
+              target_mac = id(espnow_target_mac_button_2);
+              if (target_mac != "00:00:00:00:00:00") {
+                espnow_send_button_2->execute();
+              }
+              break;
+            case 3:
+              target_mac = id(espnow_target_mac_button_3);
+              if (target_mac != "00:00:00:00:00:00") {
+                espnow_send_button_3->execute();
+              }
+              break;
+            case 4:
+              target_mac = id(espnow_target_mac_button_4);
+              if (target_mac != "00:00:00:00:00:00") {
+                espnow_send_button_4->execute();
+              }
+              break;
+          }
+          
+          // If ESP-NOW was used, prevent default relay toggle
+          // (The default handler will still run, but button action select controls local relay)
+
+text_sensor:
+  # Device's own MAC address
+  - id: ts_espnow_mac_address
+    name: ESP-NOW MAC Address
+    platform: template
+    entity_category: diagnostic
+    icon: mdi:radio
+    internal: false
+    update_interval: never
+    lambda: |-
+      // Get MAC address using ESP-IDF API directly
+      uint8_t mac[6];
+      esp_read_mac(mac, ESP_MAC_WIFI_STA);
+      char mac_str[18];
+      sprintf(mac_str, "%02X:%02X:%02X:%02X:%02X:%02X",
+              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+      return {mac_str};
+  
+  # Display configured MAC addresses (read-only)
+  - id: ts_button_1_espnow_mac
+    name: Button 1 ESP-NOW Target MAC Address
+    platform: template
+    entity_category: config
+    icon: mdi:radio
+    internal: false
+    update_interval: never
+    lambda: |-
+      return {id(espnow_target_mac_button_1)};
+  
+  - id: ts_button_2_espnow_mac
+    name: Button 2 ESP-NOW Target MAC Address
+    platform: template
+    entity_category: config
+    icon: mdi:radio
+    internal: ${gang_count < 2}
+    update_interval: never
+    lambda: |-
+      return {id(espnow_target_mac_button_2)};
+  
+  - id: ts_button_3_espnow_mac
+    name: Button 3 ESP-NOW Target MAC Address
+    platform: template
+    entity_category: config
+    icon: mdi:radio
+    internal: ${gang_count < 3}
+    update_interval: never
+    lambda: |-
+      return {id(espnow_target_mac_button_3)};
+  
+  - id: ts_button_4_espnow_mac
+    name: Button 4 ESP-NOW Target MAC Address
+    platform: template
+    entity_category: config
+    icon: mdi:radio
+    internal: ${gang_count < 4}
+    update_interval: never
+    lambda: |-
+      return {id(espnow_target_mac_button_4)};
+
+text:
+  # Input fields for configuring MAC addresses
+  - id: input_button_1_espnow_mac
+    name: Button 1 ESP-NOW Target MAC Address
+    platform: template
+    mode: text
+    icon: mdi:radio
+    entity_category: config
+    internal: false
+    optimistic: true
+    min_length: 0
+    max_length: 17
+    pattern: "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$|^00:00:00:00:00:00$"
+    initial_value: "00:00:00:00:00:00"
+    on_value:
+      then:
+        - lambda: |-
+            id(espnow_target_mac_button_1) = x;
+            ESP_LOGI("${TAG_ESPNOW}", "Button 1 ESP-NOW MAC address set to: %s", x.c_str());
+            ts_button_1_espnow_mac->publish_state(x);
+  
+  - id: input_button_2_espnow_mac
+    name: Button 2 ESP-NOW Target MAC Address
+    platform: template
+    mode: text
+    icon: mdi:radio
+    entity_category: config
+    internal: ${gang_count < 2}
+    optimistic: true
+    min_length: 0
+    max_length: 17
+    pattern: "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$|^00:00:00:00:00:00$"
+    initial_value: "00:00:00:00:00:00"
+    on_value:
+      then:
+        - lambda: |-
+            id(espnow_target_mac_button_2) = x;
+            ESP_LOGI("${TAG_ESPNOW}", "Button 2 ESP-NOW MAC address set to: %s", x.c_str());
+            ts_button_2_espnow_mac->publish_state(x);
+  
+  - id: input_button_3_espnow_mac
+    name: Button 3 ESP-NOW Target MAC Address
+    platform: template
+    mode: text
+    icon: mdi:radio
+    entity_category: config
+    internal: ${gang_count < 3}
+    optimistic: true
+    min_length: 0
+    max_length: 17
+    pattern: "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$|^00:00:00:00:00:00$"
+    initial_value: "00:00:00:00:00:00"
+    on_value:
+      then:
+        - lambda: |-
+            id(espnow_target_mac_button_3) = x;
+            ESP_LOGI("${TAG_ESPNOW}", "Button 3 ESP-NOW MAC address set to: %s", x.c_str());
+            ts_button_3_espnow_mac->publish_state(x);
+  
+  - id: input_button_4_espnow_mac
+    name: Button 4 ESP-NOW Target MAC Address
+    platform: template
+    mode: text
+    icon: mdi:radio
+    entity_category: config
+    internal: ${gang_count < 4}
+    optimistic: true
+    min_length: 0
+    max_length: 17
+    pattern: "^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$|^00:00:00:00:00:00$"
+    initial_value: "00:00:00:00:00:00"
+    on_value:
+      then:
+        - lambda: |-
+            id(espnow_target_mac_button_4) = x;
+            ESP_LOGI("${TAG_ESPNOW}", "Button 4 ESP-NOW MAC address set to: %s", x.c_str());
+            ts_button_4_espnow_mac->publish_state(x);
+
+select:
+  # Select which relay to toggle for each button
+  - id: sl_button_1_espnow_relay
+    name: Button 1 ESP-NOW Target Relay
+    platform: template
+    icon: mdi:light-switch
+    entity_category: config
+    internal: false
+    optimistic: true
+    options:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+    initial_option: "1"
+    on_value:
+      then:
+        - lambda: |-
+            id(espnow_target_relay_button_1) = (uint8_t)atoi(x.c_str());
+            ESP_LOGI("${TAG_ESPNOW}", "Button 1 ESP-NOW target relay set to: %" PRIu8, 
+                     id(espnow_target_relay_button_1));
+  
+  - id: sl_button_2_espnow_relay
+    name: Button 2 ESP-NOW Target Relay
+    platform: template
+    icon: mdi:light-switch
+    entity_category: config
+    internal: ${gang_count < 2}
+    optimistic: true
+    options:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+    initial_option: "1"
+    on_value:
+      then:
+        - lambda: |-
+            id(espnow_target_relay_button_2) = (uint8_t)atoi(x.c_str());
+            ESP_LOGI("${TAG_ESPNOW}", "Button 2 ESP-NOW target relay set to: %" PRIu8, 
+                     id(espnow_target_relay_button_2));
+  
+  - id: sl_button_3_espnow_relay
+    name: Button 3 ESP-NOW Target Relay
+    platform: template
+    icon: mdi:light-switch
+    entity_category: config
+    internal: ${gang_count < 3}
+    optimistic: true
+    options:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+    initial_option: "1"
+    on_value:
+      then:
+        - lambda: |-
+            id(espnow_target_relay_button_3) = (uint8_t)atoi(x.c_str());
+            ESP_LOGI("${TAG_ESPNOW}", "Button 3 ESP-NOW target relay set to: %" PRIu8, 
+                     id(espnow_target_relay_button_3));
+  
+  - id: sl_button_4_espnow_relay
+    name: Button 4 ESP-NOW Target Relay
+    platform: template
+    icon: mdi:light-switch
+    entity_category: config
+    internal: ${gang_count < 4}
+    optimistic: true
+    options:
+      - "1"
+      - "2"
+      - "3"
+      - "4"
+    initial_option: "1"
+    on_value:
+      then:
+        - lambda: |-
+            id(espnow_target_relay_button_4) = (uint8_t)atoi(x.c_str());
+            ESP_LOGI("${TAG_ESPNOW}", "Button 4 ESP-NOW target relay set to: %" PRIu8, 
+                     id(espnow_target_relay_button_4));
+
+switch:
+  - id: sw_espnow_enabled
+    name: ESP-NOW Enabled
+    platform: template
+    optimistic: true
+    restore_mode: restore_default_off
+    internal: false
+    entity_category: config
+    icon: mdi:radio
+    on_state:
+      then:
+        - lambda: |-
+            id(espnow_enabled) = x;
+            ESP_LOGI("${TAG_ESPNOW}", "ESP-NOW %s", x ? "enabled" : "disabled");
+    turn_on_action:
+      then:
+        - lambda: |-
+            id(espnow_enabled) = true;
+            ESP_LOGI("${TAG_ESPNOW}", "ESP-NOW enabled");
+    turn_off_action:
+      then:
+        - lambda: |-
+            id(espnow_enabled) = false;
+            ESP_LOGI("${TAG_ESPNOW}", "ESP-NOW disabled");
