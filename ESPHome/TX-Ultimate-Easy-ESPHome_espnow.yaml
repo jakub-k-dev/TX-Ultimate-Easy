@@ -18,6 +18,8 @@ esphome:
   platformio_options:
     build_flags:
       - -D TX_ULTIMATE_EASY_ESPNOW
+    includes:
+      - esp_mac.h
 
 globals:
   # ESP-NOW enabled flag
@@ -109,6 +111,22 @@ espnow:
           }
 
 script:
+  # Restore text input values from globals on boot
+  - id: !extend boot_initialize
+    then:
+      - script.execute: espnow_restore_mac_addresses
+
+  - id: espnow_restore_mac_addresses
+    mode: single
+    then:
+      - lambda: |-
+          // Sync text inputs with globals after restore_from_nvs
+          input_button_1_espnow_mac->publish_state(id(espnow_target_mac_button_1));
+          input_button_2_espnow_mac->publish_state(id(espnow_target_mac_button_2));
+          input_button_3_espnow_mac->publish_state(id(espnow_target_mac_button_3));
+          input_button_4_espnow_mac->publish_state(id(espnow_target_mac_button_4));
+          ESP_LOGI("${TAG_ESPNOW}", "Restored MAC addresses from NVS");
+
   # Send ESP-NOW message for button 1
   - id: espnow_send_button_1
     mode: single
@@ -295,22 +313,19 @@ script:
           // (The default handler will still run, but button action select controls local relay)
 
 text_sensor:
-  # Device's own MAC address
-  - id: ts_espnow_mac_address
-    name: ESP-NOW MAC Address
-    platform: template
-    entity_category: diagnostic
-    icon: mdi:radio
-    internal: false
-    update_interval: never
-    lambda: |-
-      // Get MAC address using ESP-IDF API directly
-      uint8_t mac[6];
-      esp_read_mac(mac, ESP_MAC_WIFI_STA);
-      char mac_str[18];
-      sprintf(mac_str, "%02X:%02X:%02X:%02X:%02X:%02X",
-              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-      return {mac_str};
+  # Device's own MAC address - use ESPHome's wifi_info component
+  - platform: wifi_info
+    ip_address:
+      name: WiFi IP Address
+      entity_category: diagnostic
+    ssid:
+      name: WiFi SSID
+      entity_category: diagnostic
+    mac_address:
+      id: ts_espnow_mac_address
+      name: ESP-NOW MAC Address
+      entity_category: diagnostic
+      icon: mdi:radio
   
   # Display configured MAC addresses (read-only)
   - id: ts_button_1_espnow_mac
